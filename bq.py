@@ -42,8 +42,10 @@ client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 message_queue = deque()
 
 def send_api_request(message):
+    # اطمینان از کدگذاری صحیح برای ارسال داده‌ها
     data = {"redeemCode": message}
     try:
+        # درخواست POST به API
         response = session.post(API_URL, json=data)
         
         # بررسی وضعیت پاسخ
@@ -52,7 +54,7 @@ def send_api_request(message):
                 result = response.json()
                 logger.info("✅ درخواست موفق: %s", result)
                 
-                # 🔹 جلوگیری از خطای 'latin-1' و نمایش صحیح کاراکترهای فارسی
+                # 🔹 جلوگیری از خطای 'latin-1' و نمایش صحیح کاراکترهای فارسی و دیگر کاراکترهای خاص
                 return json.dumps(result, indent=4, ensure_ascii=False)  
             except json.JSONDecodeError:
                 logger.error("❌ پاسخ API نامعتبر (احتمالاً Cloudflare مانع شده است)")
@@ -108,3 +110,4 @@ async def main():
 # اجرای برنامه
 if __name__ == "__main__":
     asyncio.run(main())
+    
