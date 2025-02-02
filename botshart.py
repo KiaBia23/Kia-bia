@@ -1,392 +1,111 @@
-import telebot
-from telebot import types
-import os
+from telethon import TelegramClient, events
+import aiohttp
 import json
-import time
-from tronpy import Tron
-from tronpy.providers import HTTPProvider
-from tronpy.keys import PrivateKey
-from collections import defaultdict
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import asyncio
+import logging
+from collections import deque
 
-# تنظیمات ریترای و تایم‌اوت
-retry_strategy = Retry(
-    total=3,
-    backoff_factor=1,
-    status_forcelist=[429, 500, 502, 503, 504],
-)
-adapter = HTTPAdapter(max_retries=retry_strategy)
-http = requests.Session()
-http.mount("https://", adapter)
-http.mount("http://", adapter)
+# تنظیم لاگینگ برای ردیابی دقیق‌تر خطاها
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# تنظیمات اصلی ربات
-telebot.apihelper.SESSION = http
-telebot.apihelper.READ_TIMEOUT = 30
-telebot.apihelper.CONNECT_TIMEOUT = 30
+# اطلاعات اتصال به تلگرام
+API_ID = 13303149
+API_HASH = 'f76c4ae86376dd73cabfab262ef7115d'
 
-bot = telebot.TeleBot("7679901840:AAEpybJnayKF2SPEVwK-CofGfRTcATdCFz4")
-CHANNEL_ID = "@kiakiree"
-CHANNEL_LINK = "https://t.me/kiakiree"
+# اطلاعات گروه هدف
+TARGET_GROUP_USERNAME = '@kiakirt'
 
-# تنظیمات ترون
-TRON_PRO_API_KEY = "0775a6a6-3ba3-48fa-845e-3bc32ff57376"
-WALLET_FILE = "wallets.json"
+# اطلاعات API مقصد
+API_URL = "https://bcgame.li/api/activity/redeemCode/useCode/"
+HEADERS = {
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    "Origin": "https://bcgame.li",
+    "Referer": "https://bcgame.li/",
+}
+COOKIES = {
+    "smidV2": "202412072313285599b6ae4023677dcc92d0055684d40a00e04053999714a90",
+    "SESSION": "01anvhzsrvejpf1946ab4c60590d1fcfcf8d453f0e18b6cf53",
+    "_ga": "GA1.1.1034880906.1733600619",
+    "_ga_B23BPN2TGE": "GS1.1.1738079768.19.1.1738080079.0.0.0",
+}
 
-# تنظیم اتصال به شبکه ترون با API Key
-provider = HTTPProvider(
-    endpoint_uri='https://api.trongrid.io',
-    api_key=TRON_PRO_API_KEY,
-    timeout=30
-)
-client = Tron(provider=provider)
+# صف برای ذخیره پیام‌ها
+message_queue = deque()
 
-# سیستم کش برای موجودی
-balance_cache = {}
-
-# سیستم وضعیت کاربران
-user_status = defaultdict(lambda: {"accepted_rules": False})
-
-# بارگذاری یا ایجاد فایل ولت‌ها
-if os.path.exists(WALLET_FILE):
-    with open(WALLET_FILE, 'r', encoding='utf-8') as f:
-        wallets = json.load(f)
-else:
-    wallets = {}
-
-def create_tron_wallet():
-    """ایجاد ولت ترون جدید"""
-    try:
-        priv_key = PrivateKey.random()
-        address = priv_key.public_key.to_base58check_address()
-        return address, priv_key.hex()
-    except Exception as e:
-        print(f"Error creating wallet: {e}")
-        return None, None
-
-def get_tron_balance(address):
-    """دریافت موجودی ترون با سیستم کش"""
-    current_time = time.time()
-    
-    # چک کردن کش
-    if address in balance_cache:
-        last_check, balance = balance_cache[address]
-        if current_time - last_check < 300:  # 5 دقیقه
-            return balance
-    
-    try:
-        balance = client.get_account_balance(address)
-        balance_cache[address] = (current_time, float(balance))
-        return float(balance)
-    except Exception as e:
-        print(f"Error getting balance: {e}")
-        return balance_cache.get(address, (0, 0))[1]
-
-def check_membership(user_id):
-    """بررسی سریع عضویت کاربر"""
-    try:
-        member = bot.get_chat_member(CHANNEL_ID, user_id)
-        return member.status in ['member', 'administrator', 'creator']
-    except Exception as e:
-        print(f"Error checking membership: {e}")
-        return False
-
-def create_join_keyboard():
-    """کیبورد عضویت در کانال"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    join_button = types.InlineKeyboardButton(
-        "🌟 عضویت در کانال", 
-        url=CHANNEL_LINK
-    )
-    check_button = types.InlineKeyboardButton(
-        "✅ بررسی عضویت", 
-        callback_data="check_join"
-    )
-    markup.add(join_button, check_button)
-    return markup
-
-def create_main_menu_keyboard():
-    """کیبورد منوی اصلی"""
-    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    profile_button = types.KeyboardButton("👤 حساب کاربری")
-    support_button = types.KeyboardButton("🛠 پشتیبانی")
-    game_button = types.KeyboardButton("🎮 شروع بازی")
-    rules_button = types.KeyboardButton("📜 قوانین")
-    markup.add(profile_button, support_button, game_button, rules_button)
-    return markup
-
-def create_profile_menu_keyboard():
-    """کیبورد حساب کاربری"""
-    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    deposit_button = types.KeyboardButton("💰 شارژ")
-    withdraw_button = types.KeyboardButton("💸 برداشت")
-    back_button = types.KeyboardButton("🔙 بازگشت به منوی اصلی")
-    markup.add(deposit_button, withdraw_button, back_button)
-    return markup
-
-def create_deposit_menu_keyboard():
-    """کیبورد شارژ"""
-    markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
-    tron_button = types.KeyboardButton("🚀 ترون")
-    back_button = types.KeyboardButton("🔙 بازگشت")
-    markup.add(tron_button, back_button)
-    return markup
-
-def show_profile(chat_id, user_id):
-    """نمایش اطلاعات حساب کاربری"""
-    try:
-        if user_id not in wallets:
-            address, recovery_code = create_tron_wallet()
-            if address is None:
-                bot.send_message(chat_id, "❌ خطا در ایجاد کیف پول. لطفا دوباره تلاش کنید.")
-                return
-
-            wallets[user_id] = {
-                "address": address,
-                "recovery_code": recovery_code,
-                "balance": 0,
-                "name": "کاربر جدید"
-            }
-            with open(WALLET_FILE, 'w', encoding='utf-8') as f:
-                json.dump(wallets, f, ensure_ascii=False, indent=4)
-
-        user_wallet = wallets[user_id]
-        balance = get_tron_balance(user_wallet['address'])
-
-        profile_text = f"""
-👤 *اطلاعات حساب کاربری*
-
-🆔 شناسه کاربری: `{user_id}`
-👨‍💼 نام: {user_wallet.get('name', 'کاربر جدید')}
-💰 موجودی: {balance} TRX
-
-📋 آدرس کیف پول ترون:
-`{user_wallet['address']}`
-
-⚠️ لطفا آدرس و کد بازیابی خود را در جای امنی ذخیره کنید.
-"""
-        bot.send_message(
-            chat_id,
-            profile_text,
-            reply_markup=create_profile_menu_keyboard(),
-            parse_mode='Markdown'
-        )
-    except Exception as e:
-        print(f"Error in show_profile: {e}")
-        bot.send_message(
-            chat_id,
-            "⚠️ متأسفانه در نمایش اطلاعات حساب مشکلی پیش آمده است. لطفاً دوباره تلاش کنید.",
-            reply_markup=create_main_menu_keyboard()
-        )
-
-def show_rules(chat_id):
-    """نمایش قوانین با فرمت زیبا"""
-    rules_text = """
-📜 *قوانین استفاده از ربات*
-
-1️⃣ رعایت ادب و احترام در استفاده از ربات
-
-2️⃣ عدم ارسال محتوای نامناسب یا مغایر با قوانین
-
-3️⃣ عدم سوء استفاده از امکانات ربات
-
-4️⃣ رعایت حریم خصوصی سایر کاربران
-
-5️⃣ پرهیز از ارسال پیام‌های مکرر و اسپم
-
-⚠️ در صورت عدم رعایت قوانین، دسترسی شما محدود خواهد شد.
-
-📌 لطفاً در صورت موافقت با قوانین، دکمه تایید را بزنید.
-"""
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    accept_button = types.InlineKeyboardButton("✅ قوانین را می‌پذیرم", callback_data="accept_rules")
-    reject_button = types.InlineKeyboardButton("❌ نمی‌پذیرم", callback_data="reject_rules")
-    markup.add(accept_button, reject_button)
-    bot.send_message(chat_id, rules_text, reply_markup=markup, parse_mode='Markdown')
-
-@bot.message_handler(commands=['start'])
-def start(message):
-    try:
-        user = message.from_user
-        user_id = user.id
-        
-        if check_membership(user_id):
-            if user_status[user_id]["accepted_rules"]:
-                bot.send_message(
-                    message.chat.id,
-                    "به منوی اصلی خوش آمدید. لطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
-                    reply_markup=create_main_menu_keyboard()
-                )
-            else:
-                show_rules(message.chat.id)
-        else:
-            join_text = f"""
-👋 سلام {user.first_name} عزیز
-
-♦️ برای استفاده از ربات، لطفا ابتدا عضو کانال ما شوید.
-
-⚡️ پس از عضویت، دکمه بررسی عضویت را بزنید.
-"""
-            bot.reply_to(
-                message,
-                join_text,
-                reply_markup=create_join_keyboard()
-            )
-    except Exception as e:
-        print(f"Error in start handler: {e}")
-
-@bot.message_handler(func=lambda message: message.text == "👤 حساب کاربری")
-def profile(message):
-    """مدیریت حساب کاربری"""
-    try:
-        show_profile(message.chat.id, message.from_user.id)
-    except Exception as e:
-        print(f"Error in profile handler: {e}")
-
-@bot.message_handler(func=lambda message: message.text == "💰 شارژ")
-def deposit(message):
-    """مدیریت شارژ کاربر"""
-    try:
-        bot.send_message(
-            message.chat.id,
-            "لطفاً روش شارژ خود را انتخاب کنید:",
-            reply_markup=create_deposit_menu_keyboard()
-        )
-    except Exception as e:
-        print(f"Error in deposit handler: {e}")
-
-@bot.message_handler(func=lambda message: message.text == "🚀 ترون")
-def deposit_tron(message):
-    """شارژ با ترون"""
-    try:
-        user_id = message.from_user.id
-        if user_id in wallets:
-            address = wallets[user_id]["address"]
-            deposit_text = f"""
-💎 *شارژ حساب با ترون*
-
-📍 آدرس کیف پول شما:
-`{address}`
-
-⚠️ لطفا دقت کنید:
-• فقط ترون (TRX) ارسال کنید
-• حداقل مبلغ ارسالی 1 TRX است
-• پس از ارسال، موجودی به صورت خودکار بروز می‌شود
-
-🔄 برای بررسی موجودی به بخش حساب کاربری مراجعه کنید.
-"""
-            bot.send_message(
-                message.chat.id,
-                deposit_text,
-                parse_mode='Markdown'
-            )
-        else:
-            bot.send_message(message.chat.id, "❌ خطا: حساب کاربری یافت نشد.")
-    except Exception as e:
-        print(f"Error in deposit_tron handler: {e}")
-
-@bot.message_handler(func=lambda message: message.text == "🔙 بازگشت به منوی اصلی")
-def back_to_main_menu(message):
-    """بازگشت به منوی اصلی"""
-    try:
-        bot.send_message(
-            message.chat.id,
-            "به منوی اصلی بازگشتید. لطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
-            reply_markup=create_main_menu_keyboard()
-        )
-    except Exception as e:
-        print(f"Error in back_to_main_menu handler: {e}")
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    """مدیریت تمام کال‌بک‌ها"""
-    try:
-        user_id = call.from_user.id
-
-        if call.data == "check_join":
-            if check_membership(user_id):
-                show_rules(call.message.chat.id)
-            else:
-                bot.answer_callback_query(
-                    call.id,
-                    "❌ شما هنوز عضو کانال نشده‌اید!",
-                    show_alert=True
-                )
-
-        elif call.data == "accept_rules":
-            user_status[user_id]["accepted_rules"] = True
-            welcome_text = f"""
-✨ {call.from_user.first_name} عزیز
-
-✅ از پذیرش قوانین سپاسگزاریم
-⭐️ اکنون می‌توانید از امکانات ربات استفاده کنید
-
-🌟 موفق باشید
-"""
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=welcome_text
-            )
-            bot.send_message(
-                call.message.chat.id,
-                "لطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
-                reply_markup=create_main_menu_keyboard()
-            )
-            bot.answer_callback_query(call.id, "✅ قوانین با موفقیت پذیرفته شد!")
-
-        elif call.data == "reject_rules":
-            reject_text = f"""
-⚠️ {call.from_user.first_name} عزیز
-
-❌ متأسفانه بدون پذیرش قوانین امکان استفاده از ربات وجود ندارد.
-
-🔄 در صورت تغییر نظر می‌توانید مجدداً /start را ارسال کنید.
-"""
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=reject_text
-            )
-            bot.answer_callback_query(call.id, "❌ قوانین رد شد!")
-            
-    except Exception as e:
-        print(f"Error in callback handler: {e}")
+async def send_api_request(message):
+    """ارسال کد به API مقصد و دریافت پاسخ"""
+    data = {"redeemCode": message}
+    async with aiohttp.ClientSession() as session:
         try:
-            bot.answer_callback_query(
-                call.id,
-                "❌ متأسفانه خطایی رخ داده است. لطفاً دوباره تلاش کنید.",
-                show_alert=True
-            )
-        except:
-            pass
-
-def run_bot():
-    """اجرای ربات با مدیریت خطا"""
-    while True:
-        try:
-            print("✅ ربات با موفقیت شروع به کار کرد...")
-            print(f"🤖 نام ربات: {bot.get_me().first_name}")
-            print(f"🔗 لینک ربات: @{bot.get_me().username}")
-            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+            async with session.post(API_URL, json=data, headers=HEADERS, cookies=COOKIES) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    logger.info("درخواست با موفقیت ارسال شد: %s", result)
+                    return json.dumps(result, indent=4)
+                else:
+                    error_text = await response.text()
+                    logger.error("خطا در ارسال درخواست: %s", error_text)
+                    return error_text
         except Exception as e:
-            print(f"❌ خطا در اجرای ربات: {e}")
-            print("🔄 تلاش مجدد برای اتصال در 5 ثانیه...")
-            time.sleep(5)
-            continue
+            logger.error(f"خطا در ارسال درخواست API: {e}")
+            return str(e)
 
-if __name__ == "__main__":
+@events.register(events.NewMessage(chats=TARGET_GROUP_USERNAME))
+async def handle_new_message(event):
+    """پردازش پیام‌های دریافتی از گروه هدف"""
     try:
-        # ایجاد فایل‌های مورد نیاز
-        if not os.path.exists(WALLET_FILE):
-            with open(WALLET_FILE, 'w', encoding='utf-8') as f:
-                json.dump({}, f, ensure_ascii=False, indent=4)
-        
-        print("🚀 در حال راه‌اندازی ربات...")
-        run_bot()
-    except KeyboardInterrupt:
-        print("\n✋ ربات با موفقیت متوقف شد.")
+        message = event.raw_text.strip()
+        logger.info(f"پیام جدید دریافت شد: {message}")
+        message_queue.append((event, message))  # اضافه کردن پیام به صف
+
+        # اگر هنوز در حال پردازش نیستیم، پردازش را آغاز کنیم
+        if len(message_queue) == 1:
+            await process_messages()
+
     except Exception as e:
-        print(f"❌ خطای غیرمنتظره: {e}")
+        logger.error(f"خطا: {e}")
+        await event.reply(f"خطا در پردازش پیام: {e}")
+
+async def process_messages():
+    """پردازش پیام‌های صف به ترتیب"""
+    while message_queue:
+        event, message = message_queue.popleft()  # دریافت پیام از صف
+        try:
+            if not message:
+                await event.reply("پیام خالی است. لطفاً کد معتبر ارسال کنید.")
+                continue
+
+            result = await send_api_request(message)
+            await event.reply(f"پاسخ API:\n{result}")
+
+        except Exception as e:
+            logger.error(f"خطا در پردازش پیام: {e}")
+            await event.reply(f"خطا در پردازش پیام: {e}")
+
+async def main():
+    """دریافت شماره، ورود به تلگرام و اجرای بات"""
+    phone = input("شماره تلفن خود را وارد کنید (با کد کشور): ").strip()
+
+    async with TelegramClient(phone, API_ID, API_HASH) as client:
+        try:
+            # بررسی اینکه آیا لاگین شده یا نه
+            if not await client.is_user_authorized():
+                print("در حال ارسال کد تأیید به تلگرام شما...")
+                await client.send_code_request(phone)
+                code = input("کد تأیید را وارد کنید: ").strip()
+                await client.sign_in(phone, code)
+
+            logger.info("بات در حال اجرا است...")
+            client.add_event_handler(handle_new_message)  # ثبت هندلر برای پیام‌های جدید
+            await client.run_until_disconnected()
+
+        except Exception as e:
+            logger.error(f"خطا در ورود: {e}")
+            print("خطایی رخ داد. لطفاً بررسی کنید و دوباره اجرا کنید.")
+
+# اجرای برنامه
+if __name__ == "__main__":
+    asyncio.run(main())
