@@ -43,15 +43,26 @@ async def send_api_request(message):
             async with session.post(API_URL, json=data, headers=HEADERS, cookies=COOKIES) as response:
                 if response.status == 200:
                     result = await response.json()
-                    logger.info("درخواست با موفقیت ارسال شد: %s", result)
-                    return json.dumps(result, indent=4)
+                    formatted_result = json.dumps(result, indent=4)
+                    
+                    # تقسیم پاسخ در صورت طولانی بودن
+                    return split_long_message(formatted_result)
                 else:
                     error_text = await response.text()
                     logger.error("خطا در ارسال درخواست: %s", error_text)
-                    return error_text
+                    return split_long_message(error_text)
         except Exception as e:
             logger.error(f"خطا در ارسال درخواست API: {e}")
-            return str(e)
+            return split_long_message(str(e))
+
+def split_long_message(text, max_length=4000):
+    """تقسیم پیام طولانی به بخش‌های کوچک‌تر"""
+    messages = []
+    while len(text) > max_length:
+        messages.append(text[:max_length])
+        text = text[max_length:]
+    messages.append(text)  # بخش باقی‌مانده
+    return messages
 
 @events.register(events.NewMessage(chats=TARGET_GROUP_USERNAME))
 async def handle_new_message(event):
@@ -78,8 +89,11 @@ async def process_messages():
                 await event.reply("پیام خالی است. لطفاً کد معتبر ارسال کنید.")
                 continue
 
-            result = await send_api_request(message)
-            await event.reply(f"پاسخ API:\n{result}")
+            results = await send_api_request(message)
+
+            # ارسال پیام‌های تقسیم‌شده
+            for part in results:
+                await event.reply(f"پاسخ API:\n{part}")
 
         except Exception as e:
             logger.error(f"خطا در پردازش پیام: {e}")
