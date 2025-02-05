@@ -1,6 +1,7 @@
 import ccxt
+import asyncio
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # اطلاعات کوینکس
 COINEX_ACCESS_ID = "BB419487C1EC71040BDD3464609EE63B0EEDA4A40A74D74E"
@@ -17,7 +18,7 @@ exchange = ccxt.coinex({
 })
 
 # دستور /start برای نمایش اطلاعات حساب
-def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         balance = exchange.fetch_balance()  # دریافت موجودی حساب
         total_balance = sum(balance['total'].values())  # محاسبه کل دارایی
@@ -29,20 +30,19 @@ def start(update: Update, context: CallbackContext) -> None:
             if amount > 0:
                 message += f"🔹 {asset}: {amount:.4f}\n"
 
-        update.message.reply_text(message)
+        await update.message.reply_text(message)
 
     except Exception as e:
-        update.message.reply_text(f"❌ خطا در دریافت اطلاعات: {str(e)}")
+        await update.message.reply_text(f"❌ خطا در دریافت اطلاعات: {str(e)}")
 
 # راه‌اندازی ربات
 def main():
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    app = Application.builder().token(BOT_TOKEN).build()
 
-    dp.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("start", start))
 
-    updater.start_polling()
-    updater.idle()
+    print("🤖 ربات در حال اجراست...")
+    app.run_polling()
 
 if __name__ == '__main__':
     main()
