@@ -1,60 +1,48 @@
-import os
-from telegram.ext import Application, CommandHandler
 import ccxt
-import asyncio
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
 
-# تنظیم توکن‌ها
-TELEGRAM_TOKEN = "7549969402:AAEYI_tYnOV79Z9G7cPkpCvCQUewHI9NosA"
-COINEX_API_KEY = "BB419487C1EC71040BDD3464609EE63B0EEDA4A40A74D74E"
-COINEX_SECRET = "6570135D34654FE9B0A135704815AD3E"
+# اطلاعات کوینکس
+COINEX_ACCESS_ID = "BB419487C1EC71040BDD3464609EE63B0EEDA4A40A74D74E"
+COINEX_SECRET_KEY = "6570135D34654FE9B0A135704815AD3E"
 
-# تابع نمایش اطلاعات حساب
-async def start(update, context):
+# اطلاعات ربات تلگرام
+BOT_TOKEN = "7080490948:AAFG2V89znK3q5XLM3XD5vjKBtONJSITDww"
+
+# راه‌اندازی کلاینت کوینکس
+exchange = ccxt.coinex({
+    'apiKey': COINEX_ACCESS_ID,
+    'secret': COINEX_SECRET_KEY,
+    'options': {'defaultType': 'spot'}
+})
+
+# دستور /start برای نمایش اطلاعات حساب
+def start(update: Update, context: CallbackContext) -> None:
     try:
-        # اتصال به کوینکس
-        exchange = ccxt.coinex({
-            'apiKey': COINEX_API_KEY,
-            'secret': COINEX_SECRET,
-            'enableRateLimit': True
-        })
-        
-        # دریافت موجودی
-        balance = exchange.fetch_balance()
-        
-        # ساخت پیام
-        message = "💰 موجودی حساب شما:\n\n"
-        
-        # اضافه کردن ارزهایی که موجودی دارند
-        for currency in balance['total']:
-            if float(balance['total'][currency]) > 0:
-                free = balance['free'][currency]
-                used = balance['used'][currency]
-                total = balance['total'][currency]
-                
-                message += f"🔸 {currency}:\n"
-                message += f"  موجودی آزاد: {free}\n"
-                message += f"  در حال استفاده: {used}\n"
-                message += f"  کل: {total}\n\n"
-        
-        # دریافت اطلاعات حساب
-        account_info = exchange.fetch_balance()['info']
-        if 'username' in account_info:
-            message += f"👤 نام کاربری: {account_info['username']}\n"
-            
-        await update.message.reply_text(message)
+        balance = exchange.fetch_balance()  # دریافت موجودی حساب
+        total_balance = sum(balance['total'].values())  # محاسبه کل دارایی
+        message = f"💰 اطلاعات حساب کوینکس شما:\n\n"
+        message += f"📊 کل دارایی: {total_balance:.4f} USD\n\n"
+
+        # نمایش دارایی‌های غیر صفر
+        for asset, amount in balance['total'].items():
+            if amount > 0:
+                message += f"🔹 {asset}: {amount:.4f}\n"
+
+        update.message.reply_text(message)
 
     except Exception as e:
-        await update.message.reply_text(f"❌ خطا در دریافت اطلاعات:\n{str(e)}")
+        update.message.reply_text(f"❌ خطا در دریافت اطلاعات: {str(e)}")
 
-async def main():
-    # راه‌اندازی ربات
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    # اضافه کردن هندلر دستور start/
-    application.add_handler(CommandHandler("start", start))
-    
-    # شروع ربات
-    await application.run_polling()
+# راه‌اندازی ربات
+def main():
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
