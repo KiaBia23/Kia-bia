@@ -1,23 +1,22 @@
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # تابع برای فرمان start
-def start(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text('سلام')
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text('سلام')
 
 def main():
     # توکن ربات خود را وارد کنید
     BOT_TOKEN = '8179916091:AAGTvIX32x5dGBtgwdllsEpbYzOO1vbL9Y4'
     
-    # ایجاد اپدیت کننده و دیسپچر
-    updater = Updater(BOT_TOKEN)
+    # ایجاد اپلیکیشن
+    application = Application.builder().token(BOT_TOKEN).build()
 
     # اضافه کردن فرمان
-    updater.dispatcher.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("start", start))
 
     # شروع ربات
-    updater.start_polling()
-    updater.idle()
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
